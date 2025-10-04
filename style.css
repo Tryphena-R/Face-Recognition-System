@@ -1,0 +1,36 @@
+/* Custom styles for video & canvas overlay */
+#video, #canvas, #uploadedImage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* Mirror the video feed for a more natural webcam experience */
+#video, #canvas {
+    transform: scaleX(-1);
+}
+
+#video {
+    object-fit: cover;
+}
+
+#uploadedImage {
+    object-fit: contain; /* Preserve aspect ratio of uploaded images */
+}
+
+/* Simple CSS loader animation */
+.loader {
+    border: 5px solid #4a4645;
+    border-top: 5px solid #e6af2e;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
