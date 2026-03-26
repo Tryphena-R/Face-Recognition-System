@@ -2,84 +2,595 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Face Recognition Software</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>FaceAuth Pro -Face Recognition System</title>
+    <!-- Tailwind CSS + Font Awesome Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Face-api.js library -->
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
-    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Custom styles for camera overlay and loader */
+        #camera-container {
+            position: relative;
+            background: #000;
+            overflow: hidden;
+            border-radius: 1rem;
+            box-shadow: 0 25px 40px -12px rgba(0,0,0,0.5);
+        }
+        #video, #uploadedImage, #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #canvas {
+            z-index: 20;
+            pointer-events: none;
+        }
+        #uploadedImage {
+            object-fit: contain;
+            background: #0a0a0a;
+        }
+        .loader {
+            width: 48px;
+            height: 48px;
+            border: 5px solid #e6af2e;
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+        }
+        @keyframes rotation {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Custom scrollbar for enrolled list */
+        #enrolledListContainer::-webkit-scrollbar {
+            width: 6px;
+        }
+        #enrolledListContainer::-webkit-scrollbar-track {
+            background: #2a2726;
+            border-radius: 8px;
+        }
+        #enrolledListContainer::-webkit-scrollbar-thumb {
+            background: #e6af2e;
+            border-radius: 8px;
+        }
+        .face-badge {
+            transition: all 0.2s ease;
+        }
+        button:active {
+            transform: scale(0.97);
+        }
+        .status-success {
+            text-shadow: 0 0 5px rgba(230,175,46,0.5);
+        }
+        @media (max-width: 768px) {
+            .grid {
+                gap: 1rem;
+            }
+        }
+    </style>
 </head>
-<body class="bg-[#191716] text-[#e0e2db] font-sans flex flex-col items-center justify-center min-h-screen p-4 md:p-8">
+<body class="bg-gradient-to-br from-[#0f0e0e] to-[#191716] text-[#e0e2db] font-sans flex flex-col items-center justify-center min-h-screen p-4 md:p-6">
 
-    <div class="w-full max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div class="md:col-span-2">
-            <div id="camera-container" class="relative w-full rounded-lg overflow-hidden shadow-2xl bg-[#000000] aspect-[3/4] md:aspect-video mb-4">
-                <video id="video" autoplay muted playsinline></video>
-                <img id="uploadedImage" class="hidden" />
-                <canvas id="canvas"></canvas>
+    <div class="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left & Center: Camera/Image Panel -->
+        <div class="lg:col-span-2 space-y-4">
+            <div id="camera-container" class="relative w-full rounded-2xl overflow-hidden shadow-2xl bg-black aspect-video">
+                <video id="video" autoplay muted playsinline class="w-full h-full object-cover"></video>
+                <img id="uploadedImage" class="hidden w-full h-full object-contain" alt="uploaded preview">
+                <canvas id="canvas" class="w-full h-full absolute top-0 left-0"></canvas>
                 
-                <div id="loader" class="absolute inset-0 flex items-center justify-center bg-[#191716] bg-opacity-75">
+                <!-- Loader overlay -->
+                <div id="loader" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70 backdrop-blur-sm z-30 hidden">
                     <div class="loader"></div>
+                    <span class="ml-3 text-[#e6af2e] font-semibold">Loading models...</span>
                 </div>
 
-                <button id="cameraToggleButton" class="absolute bottom-4 right-4 bg-black bg-opacity-50 hover:bg-opacity-75 transition-all rounded-full p-3 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#191716] focus:ring-[#e6af2e]">
+                <!-- Camera toggle button (front/back) -->
+                <button id="cameraToggleButton" class="absolute bottom-4 right-4 bg-black bg-opacity-60 hover:bg-opacity-80 backdrop-blur-sm transition-all rounded-full p-3 text-white shadow-lg focus:outline-none focus:ring-2 focus:ring-[#e6af2e] z-20">
+                    <i class="fas fa-sync-alt text-lg"></i>
+                </button>
+            </div>
+
+            <div id="status" class="h-10 text-center font-medium text-base flex items-center justify-center gap-2 bg-[#2a2726] rounded-lg py-2 px-3 shadow-inner">
+                <i class="fas fa-microchip text-[#e6af2e]"></i>
+                <span>Initializing face detection models...</span>
+            </div>
+
+            <div class="flex flex-wrap justify-center gap-3">
+                <input type="file" id="imageUpload" class="hidden" accept="image/jpeg,image/png,image/jpg">
+                <button id="uploadButton" class="px-5 py-2.5 rounded-xl font-semibold text-white bg-purple-700 hover:bg-purple-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center gap-2">
+                    <i class="fas fa-upload"></i> Upload Image
+                </button>
+                <button id="recognizeButton" disabled class="px-5 py-2.5 rounded-xl font-semibold text-white bg-green-700 hover:bg-green-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center gap-2">
+                    <i class="fas fa-search"></i> Start Recognition
+                </button>
+                <button id="backToCameraButton" class="hidden px-5 py-2.5 rounded-xl font-semibold text-white bg-gray-600 hover:bg-gray-700 transition-all shadow-md flex items-center gap-2">
+                    <i class="fas fa-camera"></i> Back to Camera
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Panel: Enrollment & Face Database -->
+        <div class="bg-[#1e1b1a] rounded-2xl shadow-2xl flex flex-col border border-[#3a3533] backdrop-blur-sm">
+            <div class="p-5 border-b border-[#3a3533]">
+                <h2 class="text-2xl font-bold flex items-center gap-2"><i class="fas fa-id-card text-[#e6af2e]"></i> Face Registry</h2>
+                <p class="text-xs text-gray-400 mt-1">Enroll faces via camera or image upload</p>
+            </div>
+            
+            <div class="p-5 space-y-4">
+                <div>
+                    <label for="nameInput" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1"><i class="fas fa-user"></i> Full Name</label>
+                    <input type="text" id="nameInput" placeholder="e.g., John Doe" class="w-full bg-[#2a2624] border border-[#5a5350] text-[#e0e2db] rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-[#e6af2e] focus:outline-none transition">
+                </div>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="enrollFromCameraButton" disabled class="w-full px-3 py-2.5 rounded-xl font-semibold text-[#191716] bg-[#e6af2e] hover:bg-[#d49c1f] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md">
+                        <i class="fas fa-camera-retro"></i> From Camera
                     </button>
+                    <input type="file" id="enrollImageUpload" class="hidden" accept="image/jpeg,image/png,image/jpg">
+                    <button id="enrollFromImageButton" disabled class="w-full px-3 py-2.5 rounded-xl font-semibold text-white bg-teal-700 hover:bg-teal-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-md">
+                        <i class="fas fa-image"></i> From Image
+                    </button>
+                </div>
             </div>
 
-            <div id="status" class="h-8 mb-4 text-lg text-center font-medium">Initializing...</div>
-
-            <div class="flex flex-wrap justify-center gap-4">
-                <input type="file" id="imageUpload" class="hidden" accept="image/*">
-                <button id="uploadButton" class="px-6 py-2 rounded-md font-semibold text-white bg-purple-600 hover:bg-purple-700 transition-colors disabled:bg-gray-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#191716] focus:ring-purple-500">
-                    Upload Image
-                </button>
-                <button id="recognizeButton" disabled class="px-6 py-2 rounded-md font-semibold text-[#e0e2db] bg-green-600 hover:bg-green-700 transition-colors disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#191716] focus:ring-green-500">
-                    Start Recognition
-                </button>
-                <button id="backToCameraButton" class="hidden px-6 py-2 rounded-md font-semibold text-[#e0e2db] bg-gray-600 hover:bg-gray-700 transition-colors">
-                    Back to Camera
-                </button>
+            <div class="px-5 pb-2 flex justify-between items-center">
+                <h3 class="text-md font-semibold text-gray-200 flex items-center gap-2"><i class="fas fa-users"></i> Enrolled Persons (<span id="enrolledCount">0</span>)</h3>
+                <button id="clearAllButton" class="text-xs bg-red-800/60 hover:bg-red-700 px-3 py-1 rounded-full transition flex items-center gap-1"><i class="fas fa-trash-alt"></i> Clear All</button>
             </div>
-        </div>
-
-        <div class="bg-[#2a2726] p-6 rounded-lg shadow-2xl flex flex-col">
-            <h2 class="text-2xl font-bold text-[#e0e2db] mb-4">Manage Faces</h2>
-            
-            <div class="mb-4">
-                <label for="nameInput" class="block text-sm font-medium text-gray-400 mb-1">Name</label>
-                <input type="text" id="nameInput" placeholder="Enter name to enroll" class="w-full bg-[#3b3837] border border-[#5c5857] text-[#e0e2db] rounded-md px-3 py-2 focus:ring-2 focus:ring-[#e6af2e] focus:outline-none">
-            </div>
-            
-            <input type="file" id="enrollImageUpload" class="hidden" accept="image/*">
-            <div class="space-y-2 mb-6">
-                <button id="enrollFromCameraButton" disabled class="w-full px-6 py-2 rounded-md font-semibold text-[#191716] bg-[#e6af2e] hover:bg-[#cca029] transition-colors disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#2a2726] focus:ring-[#e6af2e]">
-                    Enroll from Camera
-                </button>
-                <button id="enrollFromImageButton" disabled class="w-full px-6 py-2 rounded-md font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#2a2726] focus:ring-teal-500">
-                    Enroll from Image
-                </button>
-            </div>
-
-            <h3 class="text-lg font-semibold text-[#e0e2db] mb-2">Enrolled Persons</h3>
-            <div id="enrolledListContainer" class="flex-grow overflow-y-auto bg-[#191716] p-2 rounded-md border border-[#5c5857]">
+            <div id="enrolledListContainer" class="flex-grow overflow-y-auto max-h-[280px] bg-[#12100f] m-5 mt-0 rounded-xl border border-[#3a3533] p-2">
                 <ul id="enrolledList" class="space-y-2">
-                    </ul>
+                    <li class="text-center text-gray-500 py-6 text-sm"><i class="fas fa-info-circle"></i> No faces enrolled yet</li>
+                </ul>
             </div>
-            <button id="clearAllButton" class="mt-4 w-full px-6 py-2 rounded-md font-semibold text-[#e0e2db] bg-red-700 hover:bg-red-800 transition-colors disabled:bg-gray-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#2a2726] focus:ring-red-600">
-                Clear All Faces
-            </button>
+            <div class="p-4 text-center text-xs text-gray-500 border-t border-[#3a3533]">
+                <i class="fas fa-shield-alt"></i> AI-powered face verification
+            </div>
         </div>
     </div>
 
-    <div id="confirmationModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
-        <div class="bg-[#2a2726] p-6 rounded-lg shadow-xl text-center w-full max-w-sm border border-[#5c5857]">
-            <p id="modalMessage" class="text-lg text-[#e0e2db] mb-6">Are you sure?</p>
+    <!-- Confirmation Modal -->
+    <div id="confirmationModal" class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center hidden z-50 transition-all duration-200">
+        <div class="bg-[#262221] p-6 rounded-2xl shadow-2xl text-center w-full max-w-sm border border-[#e6af2e] transform scale-95">
+            <i class="fas fa-exclamation-triangle text-4xl text-[#e6af2e] mb-3"></i>
+            <p id="modalMessage" class="text-lg font-medium mb-6">Are you sure?</p>
             <div class="flex justify-center gap-4">
-                <button id="modalConfirmBtn" class="px-6 py-2 rounded-md font-semibold text-[#e0e2db] bg-red-700 hover:bg-red-800">Confirm</button>
-                <button id="modalCancelBtn" class="px-6 py-2 rounded-md font-semibold text-[#191716] bg-[#e0e2db] hover:bg-gray-300">Cancel</button>
+                <button id="modalConfirmBtn" class="px-6 py-2 rounded-xl font-semibold text-white bg-red-700 hover:bg-red-800 transition">Confirm</button>
+                <button id="modalCancelBtn" class="px-6 py-2 rounded-xl font-semibold text-[#191716] bg-gray-200 hover:bg-gray-300 transition">Cancel</button>
             </div>
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script>
+        // ------------------------- GLOBALS -------------------------
+        let modelsLoaded = false;
+        let currentStream = null;
+        let useFrontCamera = true;
+        let videoElement = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let uploadedImageEl = document.getElementById('uploadedImage');
+        let statusDiv = document.getElementById('status');
+        
+        // Face descriptors storage: { name: string, descriptor: Float32Array }
+        let enrolledFaces = []; 
+        
+        // UI Elements
+        const recognizeBtn = document.getElementById('recognizeButton');
+        const enrollCameraBtn = document.getElementById('enrollFromCameraButton');
+        const enrollImageBtn = document.getElementById('enrollFromImageButton');
+        const uploadBtn = document.getElementById('uploadButton');
+        const imageUploadInput = document.getElementById('imageUpload');
+        const enrollImageUpload = document.getElementById('enrollImageUpload');
+        const backToCamBtn = document.getElementById('backToCameraButton');
+        const cameraToggle = document.getElementById('cameraToggleButton');
+        const clearAllBtn = document.getElementById('clearAllButton');
+        const enrolledListUl = document.getElementById('enrolledList');
+        const enrolledCountSpan = document.getElementById('enrolledCount');
+        const nameInput = document.getElementById('nameInput');
+        const loaderOverlay = document.getElementById('loader');
+        
+        let isImageMode = false;      // true when showing uploaded image instead of video stream
+        let currentDetectionFrame = null;
+        let recognitionActive = false; // flag for continuous recognition
+        
+        // Helper: update enrolled list UI
+        function updateEnrolledListUI() {
+            enrolledListUl.innerHTML = '';
+            if (enrolledFaces.length === 0) {
+                enrolledListUl.innerHTML = '<li class="text-center text-gray-500 py-6 text-sm"><i class="fas fa-user-slash"></i> No faces enrolled</li>';
+                enrolledCountSpan.innerText = '0';
+                return;
+            }
+            enrolledCountSpan.innerText = enrolledFaces.length;
+            enrolledFaces.forEach((face, idx) => {
+                const li = document.createElement('li');
+                li.className = 'flex justify-between items-center bg-[#262221] p-2 rounded-lg border border-[#443e3b] face-badge';
+                li.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-user-circle text-[#e6af2e] text-lg"></i>
+                        <span class="font-medium truncate max-w-[120px]">${escapeHtml(face.name)}</span>
+                    </div>
+                    <button class="delete-face text-red-400 hover:text-red-300 transition text-sm px-2" data-index="${idx}">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                `;
+                enrolledListUl.appendChild(li);
+            });
+            // attach delete events
+            document.querySelectorAll('.delete-face').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(btn.getAttribute('data-index'));
+                    if (!isNaN(idx)) {
+                        enrolledFaces.splice(idx, 1);
+                        saveEnrolledFacesToLocal();
+                        updateEnrolledListUI();
+                        showStatus(`Removed face from registry`, 'info');
+                    }
+                });
+            });
+        }
+        
+        function escapeHtml(str) { return str.replace(/[&<>]/g, function(m){if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;});}
+        
+        // LocalStorage persistence
+        function saveEnrolledFacesToLocal() {
+            const serialized = enrolledFaces.map(f => ({
+                name: f.name,
+                descriptor: Array.from(f.descriptor)
+            }));
+            localStorage.setItem('faceauth_enrolled', JSON.stringify(serialized));
+        }
+        
+        function loadEnrolledFacesFromLocal() {
+            const raw = localStorage.getItem('faceauth_enrolled');
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    enrolledFaces = parsed.map(p => ({
+                        name: p.name,
+                        descriptor: new Float32Array(p.descriptor)
+                    }));
+                } catch(e) { console.warn(e); enrolledFaces = []; }
+            } else {
+                enrolledFaces = [];
+            }
+            updateEnrolledListUI();
+        }
+        
+        // Show status helper
+        function showStatus(msg, type = 'info') {
+            statusDiv.innerHTML = `<i class="fas ${type === 'error' ? 'fa-circle-exclamation' : type === 'success' ? 'fa-check-circle' : 'fa-info-circle'}"></i> <span>${msg}</span>`;
+            if (type === 'error') {
+                setTimeout(() => { if(statusDiv.innerHTML.includes(msg)) showStatus('Ready', 'info'); }, 3000);
+            }
+        }
+        
+        // Load face-api models
+        async function loadModels() {
+            loaderOverlay.classList.remove('hidden');
+            try {
+                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models';
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                modelsLoaded = true;
+                loaderOverlay.classList.add('hidden');
+                showStatus('✅ Models ready — Camera active', 'success');
+                enableButtons();
+                startCamera();
+            } catch (err) {
+                console.error(err);
+                loaderOverlay.classList.add('hidden');
+                showStatus('❌ Failed to load AI models. Check network.', 'error');
+            }
+        }
+        
+        function enableButtons() {
+            if (modelsLoaded) {
+                recognizeBtn.disabled = false;
+                enrollCameraBtn.disabled = false;
+                enrollImageBtn.disabled = false;
+            }
+        }
+        
+        // Camera handling
+        async function startCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            const constraints = {
+                video: { facingMode: useFrontCamera ? 'user' : 'environment' },
+                audio: false
+            };
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                videoElement.srcObject = stream;
+                videoElement.style.display = 'block';
+                uploadedImageEl.classList.add('hidden');
+                uploadedImageEl.style.display = 'none';
+                videoElement.play().catch(e=>console.log);
+                isImageMode = false;
+                backToCamBtn.classList.add('hidden');
+                recognizeBtn.disabled = !modelsLoaded;
+                showStatus('📸 Camera active — Press "Start Recognition"', 'info');
+                // clear canvas
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+            } catch(err) {
+                console.error(err);
+                showStatus('⚠️ Camera access denied or unavailable', 'error');
+            }
+        }
+        
+        function stopCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+        }
+        
+        // Switch camera front/back
+        cameraToggle.addEventListener('click', () => {
+            if (isImageMode) {
+                showStatus('Switch to camera mode first using "Back to Camera"', 'error');
+                return;
+            }
+            useFrontCamera = !useFrontCamera;
+            startCamera();
+        });
+        
+        // Upload image mode
+        uploadBtn.addEventListener('click', () => {
+            imageUploadInput.click();
+        });
+        imageUploadInput.addEventListener('change', async (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const file = e.target.files[0];
+                const url = URL.createObjectURL(file);
+                uploadedImageEl.src = url;
+                uploadedImageEl.classList.remove('hidden');
+                uploadedImageEl.style.display = 'block';
+                stopCamera();
+                videoElement.style.display = 'none';
+                isImageMode = true;
+                backToCamBtn.classList.remove('hidden');
+                showStatus('🖼️ Image loaded — click "Start Recognition"', 'info');
+                // reset canvas
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+            }
+        });
+        
+        backToCamBtn.addEventListener('click', () => {
+            if (currentStream) stopCamera();
+            startCamera();
+            isImageMode = false;
+            backToCamBtn.classList.add('hidden');
+            uploadedImageEl.classList.add('hidden');
+            videoElement.style.display = 'block';
+        });
+        
+        // ---------- ENROLLMENT FUNCTION (extract descriptor from media element) ----------
+        async function enrollFromMedia(mediaElement, personName) {
+            if (!modelsLoaded) { showStatus('Models loading...', 'error'); return false; }
+            if (!personName || personName.trim() === "") {
+                showStatus('Please enter a name', 'error');
+                return false;
+            }
+            const displaySize = { width: mediaElement.videoWidth || mediaElement.naturalWidth, height: mediaElement.videoHeight || mediaElement.naturalHeight };
+            if (displaySize.width === 0) { showStatus('Invalid image source', 'error'); return false; }
+            let detection = await faceapi.detectSingleFace(mediaElement).withFaceLandmarks().withFaceDescriptor();
+            if (!detection) {
+                showStatus('No face detected! Ensure face is visible', 'error');
+                return false;
+            }
+            const descriptor = detection.descriptor;
+            // avoid duplicate name but allow multiple entries
+            enrolledFaces.push({ name: personName.trim(), descriptor: descriptor });
+            saveEnrolledFacesToLocal();
+            updateEnrolledListUI();
+            showStatus(`✅ Enrolled "${personName}" successfully`, 'success');
+            return true;
+        }
+        
+        enrollCameraBtn.addEventListener('click', async () => {
+            if (isImageMode) { showStatus('Switch to camera mode (Back to Camera)', 'error'); return; }
+            if (!videoElement.srcObject || videoElement.readyState < 2) {
+                showStatus('Waiting for camera stream...', 'error');
+                return;
+            }
+            const nameVal = nameInput.value.trim();
+            if (!nameVal) { showStatus('Enter a name first', 'error'); return; }
+            await enrollFromMedia(videoElement, nameVal);
+            nameInput.value = '';
+        });
+        
+        enrollImageBtn.addEventListener('click', () => {
+            enrollImageUpload.click();
+        });
+        enrollImageUpload.addEventListener('change', async (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const file = e.target.files[0];
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                img.onload = async () => {
+                    const nameVal = nameInput.value.trim();
+                    if (!nameVal) { showStatus('Enter name before enrolling from image', 'error'); return; }
+                    await enrollFromMedia(img, nameVal);
+                    nameInput.value = '';
+                    URL.revokeObjectURL(url);
+                };
+                img.src = url;
+            }
+        });
+        
+        // ---------- RECOGNITION LOGIC (continuous or single) ----------
+        let recognitionInterval = null;
+        function stopRecognitionLoop() {
+            if (recognitionInterval) {
+                clearInterval(recognitionInterval);
+                recognitionInterval = null;
+            }
+            recognitionActive = false;
+            recognizeBtn.innerHTML = '<i class="fas fa-search"></i> Start Recognition';
+            recognizeBtn.classList.remove('bg-red-700', 'hover:bg-red-800');
+            recognizeBtn.classList.add('bg-green-700', 'hover:bg-green-800');
+        }
+        
+        async function performRecognitionOnSource(sourceElement) {
+            if (!modelsLoaded) return;
+            if (enrolledFaces.length === 0) {
+                drawCanvasText('No enrolled faces. Add some!', 'orange');
+                return;
+            }
+            const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+            let detections = await faceapi.detectAllFaces(sourceElement, options).withFaceLandmarks().withFaceDescriptors();
+            if (!detections || detections.length === 0) {
+                drawCanvasText('No face detected', '#aaa');
+                return;
+            }
+            // draw boxes and landmarks
+            const displaySize = { width: sourceElement.clientWidth, height: sourceElement.clientHeight };
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+            canvas.width = displaySize.width;
+            canvas.height = displaySize.height;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            faceapi.draw.drawDetections(canvas, resizedDetections);
+            faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+            
+            // For each detected face, find best match
+            for (let i = 0; i < detections.length; i++) {
+                const descriptor = detections[i].descriptor;
+                let bestMatch = { name: 'Unknown', distance: 0.6 };
+                for (let enrolled of enrolledFaces) {
+                    const distance = faceapi.euclideanDistance(descriptor, enrolled.descriptor);
+                    if (distance < bestMatch.distance) {
+                        bestMatch = { name: enrolled.name, distance: distance };
+                    }
+                }
+                const threshold = 0.55;
+                const label = bestMatch.distance < threshold ? bestMatch.name : 'Unknown';
+                const box = resizedDetections[i].detection.box;
+                ctx.font = "bold 20px 'Segoe UI'";
+                ctx.fillStyle = bestMatch.distance < threshold ? '#e6af2e' : '#ff6666';
+                ctx.shadowBlur = 0;
+                ctx.fillText(`${label} (${Math.round((1-bestMatch.distance)*100)}%)`, box.x, box.y - 8);
+            }
+        }
+        
+        function drawCanvasText(msg, color) {
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.font = "18px 'Segoe UI'";
+            ctx.fillStyle = color;
+            ctx.fillText(msg, 20, 50);
+        }
+        
+        async function recognitionLoop() {
+            if (!modelsLoaded) return;
+            if (enrolledFaces.length === 0) {
+                drawCanvasText('No faces enrolled → Add faces first', '#e6af2e');
+                return;
+            }
+            let source = null;
+            if (isImageMode && uploadedImageEl && uploadedImageEl.src && uploadedImageEl.style.display !== 'none') {
+                source = uploadedImageEl;
+                if (!source.complete || source.naturalWidth === 0) return;
+            } else if (!isImageMode && videoElement && videoElement.srcObject && videoElement.readyState >= 2) {
+                source = videoElement;
+            } else {
+                return;
+            }
+            await performRecognitionOnSource(source);
+        }
+        
+        recognizeBtn.addEventListener('click', () => {
+            if (!modelsLoaded) { showStatus('Models not ready', 'error'); return; }
+            if (recognitionActive) {
+                stopRecognitionLoop();
+                // clear canvas
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                showStatus('Recognition stopped', 'info');
+            } else {
+                if (enrolledFaces.length === 0) {
+                    showStatus('No enrolled faces! Please enroll someone first.', 'error');
+                    return;
+                }
+                recognitionActive = true;
+                recognizeBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Recognition';
+                recognizeBtn.classList.remove('bg-green-700', 'hover:bg-green-800');
+                recognizeBtn.classList.add('bg-red-700', 'hover:bg-red-800');
+                showStatus('🔍 Recognition active — scanning faces...', 'success');
+                if (recognitionInterval) clearInterval(recognitionInterval);
+                recognitionInterval = setInterval(async () => {
+                    if (recognitionActive && modelsLoaded) {
+                        await recognitionLoop();
+                    }
+                }, 300);
+            }
+        });
+        
+        // Clear all faces modal handling
+        let pendingClear = false;
+        clearAllBtn.addEventListener('click', () => {
+            if (enrolledFaces.length === 0) {
+                showStatus('No faces to clear', 'info');
+                return;
+            }
+            document.getElementById('modalMessage').innerText = 'Delete ALL enrolled faces? This cannot be undone.';
+            document.getElementById('confirmationModal').classList.remove('hidden');
+            pendingClear = true;
+        });
+        document.getElementById('modalConfirmBtn').addEventListener('click', () => {
+            if (pendingClear) {
+                enrolledFaces = [];
+                saveEnrolledFacesToLocal();
+                updateEnrolledListUI();
+                showStatus('All faces cleared', 'success');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                if (recognitionActive) stopRecognitionLoop();
+            }
+            document.getElementById('confirmationModal').classList.add('hidden');
+            pendingClear = false;
+        });
+        document.getElementById('modalCancelBtn').addEventListener('click', () => {
+            document.getElementById('confirmationModal').classList.add('hidden');
+            pendingClear = false;
+        });
+        
+        // on page load: load saved faces & models
+        loadEnrolledFacesFromLocal();
+        loadModels().catch(console.error);
+        
+        // Additional: resize canvas on container resize
+        window.addEventListener('resize', () => {
+            if (!recognitionActive) {
+                const ctx = canvas.getContext('2d');
+                if(ctx) ctx.clearRect(0,0,canvas.width,canvas.height);
+            }
+        });
+        
+        // small fix for initial camera dimensions
+        setTimeout(() => {
+            if(videoElement && videoElement.videoWidth) {
+                canvas.width = videoElement.clientWidth;
+                canvas.height = videoElement.clientHeight;
+            }
+        }, 500);
+    </script>
 </body>
 </html>
